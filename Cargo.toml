@@ -1,0 +1,26 @@
+[package]
+name = "gpusim"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+egui = "0.27"
+egui-wgpu = { version = "0.27", features = ["winit"] }
+wgpu = { version = "*", default-features = true }
+egui-winit = "0.27"
+bytemuck = { version = "1.16", features = ["derive"] }
+pollster = "0.3"
+glam = { version = "0.28", features = ["bytemuck"] }
+
+# [dependencies.wgpu]
+# features = ["metal", "wgsl"]
+
+[profile.dev.package."*"]
+# Set the default for dependencies in Development mode.
+opt-level = 3
+
+# [profile.dev]
+# # Turn on a small amount of optimisation in Development mode.
+# opt-level = 1
