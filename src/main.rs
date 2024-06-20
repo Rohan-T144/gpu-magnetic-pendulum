@@ -18,14 +18,13 @@ fn main() {
 
 async fn run() {
 	let event_loop = EventLoop::new().unwrap();
-
 	let builder = winit::window::WindowBuilder::new();
 	let window = builder.build(&event_loop).unwrap();
 	let window = Arc::new(window);
+
 	let initial_width = 1360;
 	let initial_height = 768;
 	let _ = window.request_inner_size(PhysicalSize::new(initial_width, initial_height));
-	assert!(wgpu::Instance::any_backend_feature_enabled());
 	let instance = wgpu::Instance::new(InstanceDescriptor {
 		backends: Backends::PRIMARY,
 		..Default::default()
@@ -48,49 +47,36 @@ async fn run() {
 		None,
 	).await.expect("Failed to create device");
 
-	let swapchain_capabilities = surface.get_capabilities(&adapter);
-	let swapchain_format = TextureFormat::Bgra8UnormSrgb;
-	// let swapchain_format = swapchain_capabilities
-	//     .formats
-	//     .iter()
-	//     .find(|d| **d == selected_format)
-	//     .expect("failed to select proper surface texture format!");
-
 	let mut config = wgpu::SurfaceConfiguration {
 		usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-		format: swapchain_format,
+		format: TextureFormat::Bgra8UnormSrgb,
 		width: initial_width,
 		height: initial_height,
 		present_mode: wgpu::PresentMode::AutoVsync,
 		desired_maximum_frame_latency: 0,
-		alpha_mode: swapchain_capabilities.alpha_modes[0],
+		alpha_mode: surface.get_capabilities(&adapter).alpha_modes[0],
 		view_formats: vec![],
 	};
 
 	surface.configure(&device, &config);
 
 	let mut egui_renderer = EguiRenderer::new(&device, config.format, None, 1, &window);
-
 	let mut close_requested = false;
-	let mut modifiers = ModifiersState::default();
-
-	let mut scale_factor = 1.0;
-
-	// let tex = egui::TextureHandle::new(tex_mngr, id)
+	let mut _modifiers = ModifiersState::default();
 
 	event_loop.run(move |event, elwt| {
 		elwt.set_control_flow(ControlFlow::Poll);
 
 		match event {
 			Event::WindowEvent { event, .. } => {
-				egui_renderer.handle_input(&window, &event);
+				_ = egui_renderer.handle_input(&window, &event);
 
 				match event {
 					WindowEvent::CloseRequested => {
 						close_requested = true;
 					}
 					WindowEvent::ModifiersChanged(new) => {
-						modifiers = new.state();
+						_modifiers = new.state();
 					}
 					WindowEvent::KeyboardInput {
 						event: kb_event, ..
@@ -100,13 +86,43 @@ async fn run() {
 							return;
 						}
 					}
-					WindowEvent::ActivationTokenDone { .. } => {}
 					WindowEvent::Resized(new_size) => {
 						// Resize surface:
 						config.width = new_size.width;
 						config.height = new_size.height;
 						surface.configure(&device, &config);
 					}
+					WindowEvent::RedrawRequested => {
+						let surface_texture = surface
+							.get_current_texture()
+							.expect("Failed to acquire next swap chain texture");
+
+						let surface_view = surface_texture.texture
+							.create_view(&wgpu::TextureViewDescriptor::default());
+
+						let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+							label: None,
+						});
+
+						let screen_descriptor = ScreenDescriptor {
+							size_in_pixels: [config.width, config.height],
+							pixels_per_point: window.scale_factor() as f32,
+						};
+
+						egui_renderer.draw(
+							&device,
+							&queue,
+							&mut encoder,
+							&window,
+							&surface_view,
+							screen_descriptor,
+						);
+
+						queue.submit(Some(encoder.finish()));
+						surface_texture.present();
+						window.request_redraw();
+					}
+					WindowEvent::ActivationTokenDone { .. } => {}
 					WindowEvent::Moved(_) => {}
 					WindowEvent::Destroyed => {}
 					WindowEvent::DroppedFile(_) => {}
@@ -128,51 +144,14 @@ async fn run() {
 					WindowEvent::ScaleFactorChanged { .. } => {}
 					WindowEvent::ThemeChanged(_) => {}
 					WindowEvent::Occluded(_) => {}
-					WindowEvent::RedrawRequested => {
-						let surface_texture = surface
-							.get_current_texture()
-							.expect("Failed to acquire next swap chain texture");
-
-						let surface_view = surface_texture
-							.texture
-							.create_view(&wgpu::TextureViewDescriptor::default());
-
-						let mut encoder =
-							device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-								label: None,
-							});
-
-						let screen_descriptor = ScreenDescriptor {
-							size_in_pixels: [config.width, config.height],
-							pixels_per_point: window.scale_factor() as f32 * scale_factor,
-						};
-
-						egui_renderer.draw(
-							&device,
-							&queue,
-							&mut encoder,
-							&window,
-							&surface_view,
-							screen_descriptor,
-						);
-
-						queue.submit(Some(encoder.finish()));
-						surface_texture.present();
-						window.request_redraw();
-					}
 				}
 			}
-
+			Event::AboutToWait => if close_requested { elwt.exit() }
 			Event::NewEvents(_) => {}
 			Event::DeviceEvent { .. } => {}
 			Event::UserEvent(_) => {}
 			Event::Suspended => {}
 			Event::Resumed => {}
-			Event::AboutToWait => {
-				if close_requested {
-					elwt.exit()
-				}
-			}
 			Event::LoopExiting => {}
 			Event::MemoryWarning => {}
 		}

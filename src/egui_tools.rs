@@ -34,7 +34,7 @@ struct Params {
 const PARAMS: Params = Params{
 	r: 2.0,
 	d: 0.2,
-	mu: 0.12,
+	mu: 0.15,
 	c: 0.2,
 	w: W as u32,
 	h: H as u32,
@@ -52,8 +52,9 @@ pub struct EguiRenderer {
 
 impl EguiRenderer {
 	// pub fn context(&self) -> &Context {
-	//     self.state.egui_ctx()
+	// 	self.state.egui_ctx()
 	// }
+
 	pub fn new(
 		device: &Device,
 		output_color_format: TextureFormat,
@@ -193,13 +194,18 @@ impl EguiRenderer {
 			bind_group_layouts: &[&render_bg_layout],
 			push_constant_ranges: &[],
 		});
+		let vb_layout = wgpu::VertexBufferLayout {
+			array_stride: 2*std::mem::size_of::<Vec2>() as wgpu::BufferAddress,
+			step_mode: wgpu::VertexStepMode::Vertex,
+			attributes: &wgpu::vertex_attr_array![0=>Float32x2, 1=>Float32x2],
+		};
 		let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{
 			label: Some("Render pipeline"),
 			layout: Some(&render_pipeline_layout),
 			vertex: wgpu::VertexState{
 				module: &shader_module,
 				entry_point: "vs_main",
-				buffers: &[]
+				buffers: &[vb_layout]
 			},
 			fragment: Some(wgpu::FragmentState {
 				module: &shader_module,
@@ -287,9 +293,6 @@ impl EguiRenderer {
 	pub fn handle_input(&mut self, window: &Window, event: &WindowEvent) -> egui_winit::EventResponse {
 		self.state.on_window_event(window, &event)
 	}
-	// pub fn ppp(&mut self, v: f32) {
-	//     self.state.egui_ctx().set_pixels_per_point(v);
-	// }
 
 	pub fn draw(
 		&mut self,
@@ -300,9 +303,31 @@ impl EguiRenderer {
 		window_surface_view: &TextureView,
 		screen_descriptor: ScreenDescriptor,
 	) {
-		self.state
-			.egui_ctx()
+		self.state.egui_ctx()
 			.set_pixels_per_point(screen_descriptor.pixels_per_point);
+
+		let raw_input = self.state.take_egui_input(&window);
+		let mut sidepanel_rect = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(W as f32, H as f32));
+
+		let full_output = self.state.egui_ctx().run(raw_input, |ctx| {
+			sidepanel_rect = egui::SidePanel::left("settings_panel").show(ctx, |ui| {
+				ui.heading("Settings");
+				ui.separator();
+				ui.label("text");
+			}).response.rect;
+		});
+		let left_x = screen_descriptor.pixels_per_point*sidepanel_rect.width()*2.0/(window.inner_size().width as f32) - 1.0;
+
+		let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+			label: None,
+			contents: bytemuck::cast_slice(&[
+				[vec2(left_x, -1.0), vec2(0.0, 0.0)],
+				[vec2(1.0, -1.0), vec2(1.0, 0.0)],
+				[vec2(left_x, 1.0), vec2(0.0, 1.0)],
+				[vec2(1.0, 1.0), vec2(1.0, 1.0)],
+			]),
+			usage: wgpu::BufferUsages::VERTEX
+		});
 	{
 		let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor{
 			label: Some("Compute pass"),
@@ -331,20 +356,10 @@ impl EguiRenderer {
 
 		mrpass.set_bind_group(0, &self.render_bg, &[]);
 		mrpass.set_pipeline(&self.render_pipeline);
+		mrpass.set_vertex_buffer(0, vbuf.slice(..));
 
 		mrpass.draw(0..4, 0..1);
 	}
-
-		let raw_input = self.state.take_egui_input(&window);
-		let full_output = self.state.egui_ctx().run(raw_input, |ctx| {
-			egui::SidePanel::left("settings_panel").show(&ctx, |ui| {
-				ui.label("Label!");
-				ui.separator();
-				if ui.button("Button!").clicked() {
-					println!("test")
-				}
-			});
-		});
 
 		self.state.handle_platform_output(&window, full_output.platform_output);
 
