@@ -91,7 +91,7 @@ fn vs_main(
 	return out;
 }
 
-// --------/// FRAGEMENT ///---------//
+// --------/// FRAGMENT ///---------//
 @group(0) @binding(0)
 var t_diffuse: texture_2d<f32>;
 @group(0) @binding(1)

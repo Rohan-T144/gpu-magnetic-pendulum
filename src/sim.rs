@@ -1,0 +1,373 @@
+use std::{f32::consts::PI, num::NonZeroU64};
+
+use bytemuck::{Pod, Zeroable};
+use eframe::egui::*;
+use eframe::egui_wgpu::ScreenDescriptor;
+use eframe::wgpu;
+use glam::{vec2, Vec2};
+use wgpu::{include_wgsl, util::DeviceExt, TextureFormat};
+
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+struct Particle {
+	u: Vec2,
+	du: Vec2,
+}
+
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+pub struct Params {
+	r: f32, // radius of the magnets from centre
+	d: f32,
+	mu: f32, // coefficient of friction -> controls the complexity of the fractal (lower = more fancy)
+	c: f32,
+	w: u32,
+	h: u32,
+}
+
+struct GPUSimResources {
+	vertex_buffer: wgpu::Buffer,
+	compute_pipeline: wgpu::ComputePipeline,
+	bind_group: wgpu::BindGroup,
+	render_pipeline: wgpu::RenderPipeline,
+	render_bg: wgpu::BindGroup,
+
+	_output_tex: (wgpu::Texture, wgpu::TextureView),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GPUSim {
+	params: Params,
+	_scale: f32,
+}
+
+impl GPUSim {
+	pub fn new(
+		wgpu_render_state: &eframe::egui_wgpu::RenderState,
+		width: u32,
+		height: u32,
+		scale: f32,
+	) -> Self {
+		let params = Params {
+			r: 2.0,
+			d: 0.2,
+			mu: 0.12,
+			c: 0.2,
+			w: width,
+			h: height,
+		};
+
+		let (device, target_format) = (&wgpu_render_state.device, wgpu_render_state.target_format);
+		let particles: Vec<_> = (0..width * height)
+			.map(|i| {
+				let u = (
+					vec2(
+						(i % width) as f32 / width as f32,
+						(i / width) as f32 / height as f32,
+					) - Vec2::splat(0.5)
+				) * scale;
+				Particle {
+					u,
+					du: 2.0 * Vec2::from_angle(PI/2.0).rotate(u.normalize()),
+				}
+			}).collect();
+
+		let param_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: Some("particles"),
+			contents: bytemuck::cast_slice(&[params]),
+			usage: wgpu::BufferUsages::UNIFORM,
+		});
+
+		let particle_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: Some("particles"),
+			contents: bytemuck::cast_slice(&particles),
+			usage: wgpu::BufferUsages::STORAGE,
+		});
+
+		let bg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+			label: Some("Avaialable Buffers"),
+			entries: &[
+				// Simulation Parameters
+				wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::COMPUTE
+						| wgpu::ShaderStages::VERTEX
+						| wgpu::ShaderStages::FRAGMENT,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Uniform,
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				},
+				// Old Particle data
+				wgpu::BindGroupLayoutEntry {
+					binding: 1,
+					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Buffer {
+						ty: wgpu::BufferBindingType::Storage { read_only: false },
+						has_dynamic_offset: false,
+						min_binding_size: None,
+					},
+					count: None,
+				},
+				// The texture
+				wgpu::BindGroupLayoutEntry {
+					binding: 2,
+					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::StorageTexture {
+						access: wgpu::StorageTextureAccess::WriteOnly,
+						format: TextureFormat::Rgba8Unorm,
+						view_dimension: wgpu::TextureViewDimension::D2,
+					},
+					count: None,
+				},
+			],
+		});
+
+		let shader_module = device.create_shader_module(include_wgsl!("shader.wgsl"));
+
+		let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+			label: Some("update layout"),
+			bind_group_layouts: &[&bg_layout],
+			push_constant_ranges: &[],
+		});
+
+		let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+			label: Some("Compute pipeline"),
+			layout: Some(&pipeline_layout),
+			module: &shader_module,
+			entry_point: "comp_main",
+		});
+
+		let tex = device.create_texture(&wgpu::TextureDescriptor {
+			label: Some("magpen texture"),
+			size: wgpu::Extent3d {
+				width,
+				height,
+				..Default::default()
+			},
+			mip_level_count: 1,
+			sample_count: 1,
+			dimension: wgpu::TextureDimension::D2,
+			format: wgpu::TextureFormat::Rgba8Unorm,
+			usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+			view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+		});
+		let texview = tex.create_view(&wgpu::TextureViewDescriptor {
+			label: Some("magpen texture id"),
+			..Default::default()
+		});
+		let out_tex = (tex, texview);
+		// let out_tex = Self::create_texture(device, target_format, 1, W, H);
+
+		let render_bg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+			label: Some("Render Layout"),
+			entries: &[
+				wgpu::BindGroupLayoutEntry {
+					binding: 0,
+					visibility: wgpu::ShaderStages::FRAGMENT,
+					ty: wgpu::BindingType::Texture {
+						multisampled: false,
+						view_dimension: wgpu::TextureViewDimension::D2,
+						sample_type: wgpu::TextureSampleType::Float { filterable: true },
+					},
+					count: None,
+				},
+				wgpu::BindGroupLayoutEntry {
+					binding: 1,
+					visibility: wgpu::ShaderStages::FRAGMENT,
+					ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+					count: None,
+				},
+			],
+		});
+		let render_pipeline_layout =
+			device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+				label: Some("render pipeline layout"),
+				bind_group_layouts: &[&render_bg_layout],
+				push_constant_ranges: &[],
+			});
+		let vb_layout = wgpu::VertexBufferLayout {
+			array_stride: 2 * std::mem::size_of::<Vec2>() as wgpu::BufferAddress,
+			step_mode: wgpu::VertexStepMode::Vertex,
+			attributes: &wgpu::vertex_attr_array![0=>Float32x2, 1=>Float32x2],
+		};
+		let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+			label: Some("Render pipeline"),
+			layout: Some(&render_pipeline_layout),
+			vertex: wgpu::VertexState {
+				module: &shader_module,
+				entry_point: "vs_main",
+				buffers: &[vb_layout],
+			},
+			fragment: Some(wgpu::FragmentState {
+				module: &shader_module,
+				entry_point: "fs_main",
+				targets: &[Some(wgpu::ColorTargetState {
+					format: target_format,
+					blend: Some(wgpu::BlendState::REPLACE),
+					write_mask: wgpu::ColorWrites::ALL,
+				})],
+			}),
+			primitive: wgpu::PrimitiveState {
+				topology: wgpu::PrimitiveTopology::TriangleStrip,
+				..Default::default()
+			},
+			multisample: wgpu::MultisampleState::default(),
+			depth_stencil: None,
+			multiview: None, // strip_index_format: (), front_face: (), cull_mode: (), unclipped_depth: (), polygon_mode: (), conservative: () }
+		});
+		let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+			label: Some("sampler"),
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Linear,
+			mipmap_filter: wgpu::FilterMode::Linear,
+			..Default::default()
+		});
+		let render_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &render_bg_layout,
+			label: Some("Resources described by the render_bg_layout"),
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: wgpu::BindingResource::TextureView(&out_tex.1),
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Sampler(&sampler),
+				},
+			],
+		});
+
+		let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+			layout: &bg_layout,
+			label: Some("Resources described by the bind_group_layout"),
+			entries: &[
+				// params
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+						buffer: &param_buf,
+						offset: 0,
+						// size: None,
+						size: NonZeroU64::new(std::mem::size_of::<Params>() as u64),
+					}),
+				},
+				// particles
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+						buffer: &particle_buf,
+						offset: 0,
+						size: NonZeroU64::new(
+							((width * height) as usize * std::mem::size_of::<Particle>()) as u64,
+						),
+						// size: NonZeroU64::new(particles_size)
+					}),
+				},
+				// Current Particle data
+				wgpu::BindGroupEntry {
+					binding: 2,
+					resource: wgpu::BindingResource::TextureView(&out_tex.1),
+				},
+			],
+		});
+
+		let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: None,
+			contents: bytemuck::cast_slice(&[
+				[vec2(-1.0, -1.0), vec2(0.0, 0.0)],
+				[vec2(1.0, -1.0), vec2(1.0, 0.0)],
+				[vec2(-1.0, 1.0), vec2(0.0, 1.0)],
+				[vec2(1.0, 1.0), vec2(1.0, 1.0)],
+			]),
+			usage: wgpu::BufferUsages::VERTEX,
+		});
+
+		wgpu_render_state
+			.renderer
+			.write()
+			.callback_resources
+			.insert(GPUSimResources {
+				bind_group,
+				compute_pipeline,
+				render_bg,
+				render_pipeline,
+				vertex_buffer,
+				_output_tex: out_tex,
+			});
+
+		GPUSim {
+			params,
+			_scale: scale,
+		}
+	}
+
+	fn _create_texture(
+		device: &wgpu::Device,
+		target_format: wgpu::TextureFormat,
+		sample_count: u32,
+		width: u32,
+		height: u32,
+	) -> (wgpu::Texture, wgpu::TextureView) {
+		let texture = device.create_texture(&wgpu::TextureDescriptor {
+			label: Some("egui_plot_texture"),
+			size: wgpu::Extent3d {
+				width,
+				height,
+				depth_or_array_layers: 1,
+			},
+			mip_level_count: 1,
+			sample_count,
+			dimension: wgpu::TextureDimension::D2,
+			format: target_format,
+			view_formats: &[target_format],
+			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+		});
+		let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+		(texture, view)
+	}
+}
+
+impl eframe::egui_wgpu::CallbackTrait for GPUSim {
+	fn prepare(
+		&self,
+		device: &wgpu::Device,
+		_queue: &wgpu::Queue,
+		_screen_descriptor: &ScreenDescriptor,
+		_egui_encoder: &mut wgpu::CommandEncoder,
+		callback_resources: &mut eframe::egui_wgpu::CallbackResources,
+	) -> Vec<wgpu::CommandBuffer> {
+		let res: &GPUSimResources = callback_resources.get().unwrap();
+		let mut encoder = device.create_command_encoder(&Default::default());
+
+		{
+			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+				label: Some("Compute pass"),
+				timestamp_writes: None,
+			});
+			cpass.set_pipeline(&res.compute_pipeline);
+			cpass.set_bind_group(0, &res.bind_group, &[]);
+
+			cpass.dispatch_workgroups(self.params.w, self.params.h, 1);
+		}
+
+		vec![encoder.finish()]
+	}
+
+	fn paint<'a>(
+		&'a self,
+		_info: PaintCallbackInfo,
+		render_pass: &mut wgpu::RenderPass<'a>,
+		callback_resources: &'a eframe::egui_wgpu::CallbackResources,
+	) {
+		let res: &GPUSimResources = callback_resources.get().unwrap();
+
+		render_pass.set_pipeline(&res.render_pipeline);
+		render_pass.set_vertex_buffer(0, res.vertex_buffer.slice(..));
+		render_pass.set_bind_group(0, &res.render_bg, &[]);
+		render_pass.draw(0..4, 0..1);
+	}
+}

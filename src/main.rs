@@ -1,159 +1,54 @@
-use std::sync::Arc;
+mod sim;
+use sim::GPUSim;
 
-mod egui_tools;
-use crate::egui_tools::EguiRenderer;
-use egui_wgpu::ScreenDescriptor;
-use egui_wgpu::wgpu as wgpu;
-use egui_winit::winit as winit;
-use wgpu::{Backends, InstanceDescriptor, TextureFormat};
-use winit::dpi::PhysicalSize;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::keyboard::{Key, ModifiersState, NamedKey};
+use eframe::egui;
 
 fn main() {
-	#[cfg(not(target_arch = "wasm32"))]
-	pollster::block_on(run());
+    let native_options = eframe::NativeOptions {
+        renderer: eframe::Renderer::Wgpu,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "GPU Simulation",
+        native_options,
+        Box::new(|cc| Box::new(GPUSimApp::new(cc))),
+    )
+    .unwrap();
 }
 
-async fn run() {
-	let event_loop = EventLoop::new().unwrap();
-	let builder = winit::window::WindowBuilder::new();
-	let window = builder.build(&event_loop).unwrap();
-	let window = Arc::new(window);
+pub struct GPUSimApp {
+    sim: GPUSim,
+}
 
-	let initial_width = 1360;
-	let initial_height = 768;
-	let _ = window.request_inner_size(PhysicalSize::new(initial_width, initial_height));
-	let instance = wgpu::Instance::new(InstanceDescriptor {
-		backends: Backends::PRIMARY,
-		..Default::default()
-	});
-	let surface = instance.create_surface(window.clone()).unwrap();
-	let power_pref = wgpu::PowerPreference::default();
-	let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-		power_preference: power_pref,
-		force_fallback_adapter: false,
-		compatible_surface: Some(&surface),
-	}).await.expect("Failed to find an appropriate adapter");
+impl eframe::App for GPUSimApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    	egui::SidePanel::left("Settings").show(ctx, |ui| {
+			ui.label("The triangle is being painted using ");
+			ui.hyperlink_to("WGPU", "https://wgpu.rs");
+			ui.label(" (Portable Rust graphics API awesomeness)");
+			ui.label("It's not a very impressive demo, but it shows you can embed 3D inside of egui.");
+    	});
+        egui::CentralPanel::default().show(ctx, |ui| {
+			egui::Frame::canvas(ui.style()).show(ui, |ui| {
+				let rect = ui.available_rect_before_wrap();
+				// let (rect, _response) = ui.allocate_exact_size(egui::Vec2::splat(300.0), egui::Sense::drag());
 
-	let features = wgpu::Features::empty();
-	let (device, queue) = adapter.request_device(
-		&wgpu::DeviceDescriptor {
-			label: None,
-			required_features: features,
-			required_limits: Default::default(),
-		},
-		None,
-	).await.expect("Failed to create device");
+				ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(
+					rect,
+					self.sim,
+				));
+			});
+        });
+        ctx.request_repaint();
+    }
+}
 
-	let mut config = wgpu::SurfaceConfiguration {
-		usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-		format: TextureFormat::Bgra8UnormSrgb,
-		width: initial_width,
-		height: initial_height,
-		present_mode: wgpu::PresentMode::AutoVsync,
-		desired_maximum_frame_latency: 0,
-		alpha_mode: surface.get_capabilities(&adapter).alpha_modes[0],
-		view_formats: vec![],
-	};
-
-	surface.configure(&device, &config);
-
-	let mut egui_renderer = EguiRenderer::new(&device, config.format, None, 1, &window);
-	let mut close_requested = false;
-	let mut _modifiers = ModifiersState::default();
-
-	event_loop.run(move |event, elwt| {
-		elwt.set_control_flow(ControlFlow::Poll);
-
-		match event {
-			Event::WindowEvent { event, .. } => {
-				_ = egui_renderer.handle_input(&window, &event);
-
-				match event {
-					WindowEvent::CloseRequested => {
-						close_requested = true;
-					}
-					WindowEvent::ModifiersChanged(new) => {
-						_modifiers = new.state();
-					}
-					WindowEvent::KeyboardInput {
-						event: kb_event, ..
-					} => {
-						if kb_event.logical_key == Key::Named(NamedKey::Escape) {
-							close_requested = true;
-							return;
-						}
-					}
-					WindowEvent::Resized(new_size) => {
-						// Resize surface:
-						config.width = new_size.width;
-						config.height = new_size.height;
-						surface.configure(&device, &config);
-					}
-					WindowEvent::RedrawRequested => {
-						let surface_texture = surface
-							.get_current_texture()
-							.expect("Failed to acquire next swap chain texture");
-
-						let surface_view = surface_texture.texture
-							.create_view(&wgpu::TextureViewDescriptor::default());
-
-						let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-							label: None,
-						});
-
-						let screen_descriptor = ScreenDescriptor {
-							size_in_pixels: [config.width, config.height],
-							pixels_per_point: window.scale_factor() as f32,
-						};
-
-						egui_renderer.draw(
-							&device,
-							&queue,
-							&mut encoder,
-							&window,
-							&surface_view,
-							screen_descriptor,
-						);
-
-						queue.submit(Some(encoder.finish()));
-						surface_texture.present();
-						window.request_redraw();
-					}
-					WindowEvent::ActivationTokenDone { .. } => {}
-					WindowEvent::Moved(_) => {}
-					WindowEvent::Destroyed => {}
-					WindowEvent::DroppedFile(_) => {}
-					WindowEvent::HoveredFile(_) => {}
-					WindowEvent::HoveredFileCancelled => {}
-					WindowEvent::Focused(_) => {}
-					WindowEvent::Ime(_) => {}
-					WindowEvent::CursorMoved { .. } => {}
-					WindowEvent::CursorEntered { .. } => {}
-					WindowEvent::CursorLeft { .. } => {}
-					WindowEvent::MouseWheel { .. } => {}
-					WindowEvent::MouseInput { .. } => {}
-					WindowEvent::TouchpadMagnify { .. } => {}
-					WindowEvent::SmartMagnify { .. } => {}
-					WindowEvent::TouchpadRotate { .. } => {}
-					WindowEvent::TouchpadPressure { .. } => {}
-					WindowEvent::AxisMotion { .. } => {}
-					WindowEvent::Touch(_) => {}
-					WindowEvent::ScaleFactorChanged { .. } => {}
-					WindowEvent::ThemeChanged(_) => {}
-					WindowEvent::Occluded(_) => {}
-				}
-			}
-			Event::AboutToWait => if close_requested { elwt.exit() }
-			Event::NewEvents(_) => {}
-			Event::DeviceEvent { .. } => {}
-			Event::UserEvent(_) => {}
-			Event::Suspended => {}
-			Event::Resumed => {}
-			Event::LoopExiting => {}
-			Event::MemoryWarning => {}
-		}
-	}).unwrap();
+impl GPUSimApp {
+    pub fn new<'a>(cc: &'a eframe::CreationContext<'a>) -> Self {
+        let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
+        GPUSimApp {
+            sim: GPUSim::new(wgpu_render_state, 800, 800, 20.),
+        }
+    }
 }
