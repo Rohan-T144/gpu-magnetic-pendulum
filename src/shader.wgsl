@@ -11,6 +11,7 @@ struct Particle {
 };
 
 struct Params {
+	n: u32,
 	r: f32, // radius of the magnets from centre
 	d: f32,
 	mu: f32, // coefficient of friction
@@ -54,22 +55,13 @@ fn comp_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 	if (global_id.x >= params.w || global_id.y >= params.h) { return; }
 	let globalidx = global_id.x + global_id.y * params.w; 
 
-	var MAGS = array(
-		params.r * dir(0.0),
-		params.r * dir(tau/3),
-		params.r * dir(2*tau/3),
-	);
-	var COLS: array<vec4f, 3> = array(
-		vec4f(f32(0xe7)/255.0, f32(0x32)/255.0, f32(0x13)/255.0, 1.0), 
-		vec4f(f32(0x9d)/255.0, f32(0xbe)/255.0, f32(0xb7)/255.0, 1.0), 
-		vec4f(f32(0xef)/255.0, f32(0xe6)/255.0, f32(0xd5)/255.0, 1.0),
-	);
 	var p = particles[globalidx];
 	var ddu = vec2f(0.0, 0.0);
 
 	let d2 = params.d * params.d;
-	for (var i=0; i<3; i++) {
-		let diff = MAGS[i]-p.u;
+	for (var i: u32 = 0; i < params.n; i++) {
+		let mag = params.r * dir(f32(i)*tau/f32(params.n));
+		let diff = mag-p.u;
 		let sq = sqrt(length2(diff)+d2);
 		ddu += diff / (sq*sq*sq);
 	}

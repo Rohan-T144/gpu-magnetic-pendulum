@@ -1,9 +1,12 @@
 mod sim;
+mod resources;
+use std::error::Error;
+
 use sim::GPUSim;
 
 use eframe::egui;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let native_options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
@@ -12,9 +15,9 @@ fn main() {
     eframe::run_native(
         "GPU Simulation",
         native_options,
-        Box::new(|cc| Box::new(GPUSimApp::new(cc))),
-    )
-    .unwrap();
+        Box::new(|cc| Ok(Box::new(GPUSimApp::new(cc)))),
+    )?;
+    Ok(())
 }
 
 pub struct GPUSimApp {
