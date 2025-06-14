@@ -9,9 +9,10 @@ use wgpu::{include_wgsl, util::DeviceExt, TextureFormat};
 
 use crate::resources::TWILIGHT_MAP;
 
+// wgpu requires the structures to be padded to 16 bytes (4 floats)
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
-struct Particle {
+pub(crate) struct Particle {
     u: Vec2,
     du: Vec2,
 }
@@ -19,7 +20,7 @@ struct Particle {
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct Params {
-    n: u32,
+    pub n: u32,
     pub r: f32, // radius of the magnets from centre
     pub d: f32,
     pub mu: f32, // coefficient of friction -> controls the complexity of the fractal (lower = more fancy)
@@ -27,6 +28,10 @@ pub struct Params {
     pub dt: f32,
     w: u32,
     h: u32,
+    pub velocity_magnitude: f32, // magnitude of initial velocity
+    pub velocity_angle: f32,     // angle offset for velocity direction (in radians)
+    pub velocity_pattern: u32,   // 0=radial, 1=tangential, 2=uniform, 3=zero
+    _padding: f32,               // padding to maintain 16-byte alignment
 }
 
 struct GPUSimResources {
@@ -44,9 +49,58 @@ struct GPUSimResources {
 pub struct GPUSim {
     pub params: Params,
     _scale: f32,
+    _width: u32,
+    _height: u32,
 }
 
 impl GPUSim {
+    pub fn create_particles(width: u32, height: u32, scale: f32, params: &Params) -> Vec<Particle> {
+        (0..width * height)
+            .map(|i| {
+                let u = (vec2(
+                    (i % width) as f32 / width as f32,
+                    (i / width) as f32 / height as f32,
+                ) - Vec2::splat(0.5))
+                    * scale;
+
+                let du = match params.velocity_pattern {
+                    0 => {
+                        // Radial pattern: velocity points away from center
+                        if u.length() > 0.001 {
+                            params.velocity_magnitude
+                                * u.normalize()
+                                    .rotate(Vec2::from_angle(params.velocity_angle))
+                        } else {
+                            Vec2::from_angle(params.velocity_angle) * params.velocity_magnitude
+                        }
+                    }
+                    1 => {
+                        // Tangential pattern: velocity perpendicular to position
+                        if u.length() > 0.001 {
+                            params.velocity_magnitude
+                                * Vec2::new(-u.y, u.x)
+                                    .normalize()
+                                    .rotate(Vec2::from_angle(params.velocity_angle))
+                        } else {
+                            Vec2::from_angle(params.velocity_angle + PI / 2.0)
+                                * params.velocity_magnitude
+                        }
+                    }
+                    2 => {
+                        // Uniform direction: all particles have same velocity direction
+                        Vec2::from_angle(params.velocity_angle) * params.velocity_magnitude
+                    }
+                    _ => {
+                        // Zero velocity
+                        Vec2::ZERO
+                    }
+                };
+
+                Particle { u, du }
+            })
+            .collect()
+    }
+
     pub fn new(
         wgpu_render_state: &eframe::egui_wgpu::RenderState,
         width: u32,
@@ -56,29 +110,20 @@ impl GPUSim {
         let params = Params {
             n: 5,
             r: 3.0,
-            d: 0.2,
+            d: 0.4,
             mu: 0.2,
             c: 0.2,
             w: width,
             h: height,
-            dt: 0.008,
+            dt: 0.006,
+            velocity_magnitude: 4.0,
+            velocity_angle: PI / 2.0,
+            velocity_pattern: 1, // tangential by default
+            _padding: 0.0,
         };
 
         let (device, target_format) = (&wgpu_render_state.device, wgpu_render_state.target_format);
-        let particles: Vec<_> = (0..width * height)
-            .map(|i| {
-                let u = (vec2(
-                    (i % width) as f32 / width as f32,
-                    (i / width) as f32 / height as f32,
-                ) - Vec2::splat(0.5))
-                    * scale;
-                Particle {
-                    u,
-                    du: Vec2::ZERO,
-                    // du: 0.25 * Vec2::from_angle(PI / 2.0).rotate(u.normalize()),
-                }
-            })
-            .collect();
+        let particles = Self::create_particles(width, height, scale, &params);
 
         let param_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("particles"),
@@ -161,8 +206,9 @@ impl GPUSim {
             label: Some("Compute pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
-            entry_point: "comp_main",
+            entry_point: Some("comp_main"),
             compilation_options: Default::default(),
+            cache: None,
         });
 
         let tex = device.create_texture(&wgpu::TextureDescriptor {
@@ -222,13 +268,13 @@ impl GPUSim {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader_module,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[vb_layout],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader_module,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: target_format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -242,7 +288,8 @@ impl GPUSim {
             },
             multisample: wgpu::MultisampleState::default(),
             depth_stencil: None,
-            multiview: None, // strip_index_format: (), front_face: (), cull_mode: (), unclipped_depth: (), polygon_mode: (), conservative: () }
+            multiview: None,
+            cache: None,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("sampler"),
@@ -337,6 +384,125 @@ impl GPUSim {
         GPUSim {
             params,
             _scale: scale,
+            _width: width,
+            _height: height,
+        }
+    }
+
+    pub fn restart(&mut self, wgpu_render_state: &eframe::egui_wgpu::RenderState) {
+        let particles =
+            Self::create_particles(self._width, self._height, self._scale, &self.params);
+        let device = &wgpu_render_state.device;
+
+        // Get current resources and recreate particle buffer
+        if let Some(resources) = wgpu_render_state
+            .renderer
+            .write()
+            .callback_resources
+            .get_mut::<GPUSimResources>()
+        {
+            // Create new particle buffer with reset particles
+            let new_particle_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("particles"),
+                contents: bytemuck::cast_slice(&particles),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+
+            // Recreate the bind group with the new particle buffer
+            let colormap_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("colormap"),
+                contents: bytemuck::cast_slice(&TWILIGHT_MAP),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+
+            let bg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Avaialable Buffers"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE
+                            | wgpu::ShaderStages::VERTEX
+                            | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+            let new_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &bg_layout,
+                label: Some("Resources described by the bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &resources.param_buffer,
+                            offset: 0,
+                            size: NonZeroU64::new(std::mem::size_of::<Params>() as u64),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &new_particle_buf,
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                (particles.len() * std::mem::size_of::<Particle>()) as u64,
+                            ),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&resources._output_tex.1),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &colormap_buf,
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                (TWILIGHT_MAP.len() * std::mem::size_of::<[f32; 4]>()) as u64,
+                            ),
+                        }),
+                    },
+                ],
+            });
+
+            resources.bind_group = new_bind_group;
         }
     }
 }
@@ -368,11 +534,11 @@ impl eframe::egui_wgpu::CallbackTrait for GPUSim {
         vec![encoder.finish()]
     }
 
-    fn paint<'a>(
+    fn paint<'a, 'b, 'c>(
         &'a self,
         _info: PaintCallbackInfo,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        callback_resources: &'a eframe::egui_wgpu::CallbackResources,
+        render_pass: &mut wgpu::RenderPass<'b>,
+        callback_resources: &'c eframe::egui_wgpu::CallbackResources,
     ) {
         let res: &GPUSimResources = callback_resources.get().unwrap();
 
@@ -382,5 +548,3 @@ impl eframe::egui_wgpu::CallbackTrait for GPUSim {
         render_pass.draw(0..4, 0..1);
     }
 }
-
-// wgpu requires the structures to be padded to 16 bytes (4 floats)
