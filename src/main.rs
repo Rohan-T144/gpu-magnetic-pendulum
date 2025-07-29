@@ -4,14 +4,13 @@ use std::{error::Error, sync::Arc};
 
 use sim::GPUSim;
 
-use eframe::egui::{self, FontData, FontDefinitions, Sense};
+use eframe::egui::{self, FontData, FontDefinitions, Sense, Slider, Vec2};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let native_options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
-
     eframe::run_native(
         "GPU Simulation",
         native_options,
@@ -75,37 +74,37 @@ impl eframe::App for GPUSimApp {
             
             // Number of magnets
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.sim.params.n, 3..=10));
+                ui.add(Slider::new(&mut self.sim.params.n, 3..=10));
                 ui.label("Number of magnets");
             });
             
             // Magnet radius from center
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.sim.params.r, 1.0..=10.0).step_by(0.1));
+                ui.add(Slider::new(&mut self.sim.params.r, 1.0..=10.0).step_by(0.1));
                 ui.label("Magnet radius from center");
             });
             
             // Distance parameter
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.sim.params.d, 0.1..=2.0).step_by(0.01));
+                ui.add(Slider::new(&mut self.sim.params.d, 0.1..=2.0).step_by(0.01));
                 ui.label("Distance parameter");
             });
             
             // Friction coefficient
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.sim.params.mu, 0.0..=1.0).step_by(0.01));
+                ui.add(Slider::new(&mut self.sim.params.mu, 0.0..=1.0).step_by(0.01));
                 ui.label("Friction coefficient");
             });
             
             // Spring constant
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.sim.params.c, 0.0..=1.0).step_by(0.01));
+                ui.add(Slider::new(&mut self.sim.params.c, 0.0..=1.0).step_by(0.01));
                 ui.label("Spring constant");
             });
             
             // Time step
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.sim.params.dt, 0.001..=0.05).step_by(0.001));
+                ui.add(Slider::new(&mut self.sim.params.dt, 0.001..=0.05).step_by(0.001));
                 ui.label("Time step (dt)");
             });
             
@@ -115,7 +114,7 @@ impl eframe::App for GPUSimApp {
             
             // Velocity magnitude
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.sim.params.velocity_magnitude, 0.0..=10.0)
+                ui.add(Slider::new(&mut self.sim.params.velocity_magnitude, 0.0..=10.0)
                     .step_by(0.1)
                     .text("magnitude"))
                     .on_hover_text("Controls how fast particles start moving");
@@ -125,7 +124,7 @@ impl eframe::App for GPUSimApp {
             // Velocity angle
             ui.horizontal(|ui| {
                 let mut angle_degrees = self.sim.params.velocity_angle.to_degrees();
-                if ui.add(egui::Slider::new(&mut angle_degrees, 0.0..=360.0)
+                if ui.add(Slider::new(&mut angle_degrees, 0.0..=360.0)
                     .step_by(1.0)
                     .text("angle"))
                     .on_hover_text("Rotation offset for velocity directions")
@@ -157,7 +156,7 @@ impl eframe::App for GPUSimApp {
             // Visual indicator for velocity pattern
             ui.horizontal(|ui| {
                 ui.label("Preview:");
-                let (rect, _) = ui.allocate_exact_size(egui::Vec2::new(60.0, 60.0), egui::Sense::hover());
+                let (rect, _) = ui.allocate_exact_size(Vec2::new(60.0, 60.0), egui::Sense::hover());
                 let painter = ui.painter();
                 let center = rect.center();
                 let radius = 25.0;
@@ -169,16 +168,16 @@ impl eframe::App for GPUSimApp {
                 let num_samples = 8;
                 for i in 0..num_samples {
                     let angle = (i as f32) * std::f32::consts::TAU / (num_samples as f32);
-                    let pos = center + egui::Vec2::angled(angle) * (radius * 0.7);
+                    let pos = center + Vec2::angled(angle) * (radius * 0.7);
                     
                     let velocity_dir = match self.sim.params.velocity_pattern {
-                        0 => egui::Vec2::angled(angle + self.sim.params.velocity_angle), // radial
-                        1 => egui::Vec2::angled(angle + std::f32::consts::PI / 2.0 + self.sim.params.velocity_angle), // tangential
-                        2 => egui::Vec2::angled(self.sim.params.velocity_angle), // uniform
-                        _ => egui::Vec2::ZERO, // zero
+                        0 => Vec2::angled(angle + self.sim.params.velocity_angle), // radial
+                        1 => Vec2::angled(angle + std::f32::consts::PI / 2.0 + self.sim.params.velocity_angle), // tangential
+                        2 => Vec2::angled(self.sim.params.velocity_angle), // uniform
+                        _ => Vec2::ZERO, // zero
                     };
                     
-                    if velocity_dir != egui::Vec2::ZERO {
+                    if velocity_dir != Vec2::ZERO {
                         painter.arrow(pos, velocity_dir * 8.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 150, 255)));
                     }
                     

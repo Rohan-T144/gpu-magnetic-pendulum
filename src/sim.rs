@@ -519,7 +519,6 @@ impl eframe::egui_wgpu::CallbackTrait for GPUSim {
         let res: &GPUSimResources = callback_resources.get().unwrap();
         queue.write_buffer(&res.param_buffer, 0, bytemuck::cast_slice(&[self.params]));
         let mut encoder = device.create_command_encoder(&Default::default());
-
         {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Compute pass"),
@@ -530,7 +529,6 @@ impl eframe::egui_wgpu::CallbackTrait for GPUSim {
 
             cpass.dispatch_workgroups(self.params.w, self.params.h, 1);
         }
-
         vec![encoder.finish()]
     }
 
