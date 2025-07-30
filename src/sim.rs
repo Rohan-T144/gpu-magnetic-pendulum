@@ -108,14 +108,14 @@ impl GPUSim {
 		scale: f32,
 	) -> Self {
 		let params = Params {
-			n: 5,
+			n: 3,
 			r: 3.0,
 			d: 0.4,
 			mu: 0.2,
 			c: 0.2,
 			w: width,
 			h: height,
-			dt: 0.006,
+			dt: 0.008,
 			velocity_magnitude: 4.0,
 			velocity_angle: 0.0,
 			velocity_pattern: 1, // tangential by default
