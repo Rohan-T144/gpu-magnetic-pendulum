@@ -2,9 +2,11 @@
 
 # GPU Magnetic Pendulum Simulation
 
+<img width="1312" height="940" alt="Screenshot 2025-07-30 at 10 34 35 PM" src="https://github.com/user-attachments/assets/ff03869e-74dd-4a9e-9e77-45615ff5fd6d" />
+
 </div>
 
-A real-time GPU-accelerated simulation of a magnetic pendulum system that generates beautiful fractal-like patterns through chaotic dynamics.
+A real-time GPU-accelerated simulation of a magnetic pendulum system that generates fractal-like patterns through chaotic dynamics.
 
 **[Try it live in your browser (requires WebGPU)](https://rohan-t144.github.io/gpu-magnetic-pendulum/)**
 
