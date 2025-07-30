@@ -6,7 +6,7 @@
 
 </div>
 
-A real-time GPU-accelerated simulation of a magnetic pendulum system that generates fractal-like patterns through chaotic dynamics.
+Real-time GPU-accelerated simulation of a magnetic pendulum system that generates fractal-like patterns through chaotic dynamics.
 
 **[Try it live in your browser (requires WebGPU)](https://rohan-t144.github.io/gpu-magnetic-pendulum/)**
 
@@ -18,10 +18,9 @@ Each pixel in the visualization represents a particle starting from that positio
 
 ## Features
 
-- **GPU-accelerated**: Utilizes compute shaders for real-time simulation of hundreds of thousands of particles
+- **GPU-accelerated**: Utilizes compute shaders for real-time simulation of millions of particles
 - **Interactive controls**: Adjust physics parameters and see immediate visual feedback
 - **Multiple velocity patterns**: Radial, tangential, uniform, or zero initial velocities
-- **Preset configurations**: Quick access to interesting parameter combinations
 - **Cross-platform**: Runs natively on desktop and in web browsers via WebGPU
 
 ## Running the Simulation
@@ -108,4 +107,4 @@ The chaotic nature arises from the nonlinear interaction between multiple attrac
 - **Rendering**: Real-time texture generation and display
 - **Colormap**: Twilight colormap for visualization
 
-The simulation uses a compute shader to update particle positions in parallel on the GPU, achieving real-time performance for 800×800 = 640,000 particles, and likely much higher resolutions.
+The simulation uses a compute shader to update particle positions in parallel on the GPU, achieving real-time performance for 1000×1000=1,000,000 particles and higher resolutions.
