@@ -5,7 +5,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eframe = { version = "0.32", default-features = false, features = ["accesskit", "wayland", "wgpu", "x11", "web_screen_reader"] }
+eframe = { version = "0.32", default-features = false, features = [
+    "accesskit", "wayland", "wgpu", "x11", "web_screen_reader"
+] }
 bytemuck = { version = "1.16", features = ["derive"] }
 glam = { version = "0.28", features = ["bytemuck"] }
 rand = "0.9"
