@@ -11,6 +11,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 	env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`)
 	let native_options = eframe::NativeOptions {
 		renderer: eframe::Renderer::Wgpu,
+		viewport: egui::ViewportBuilder::default()
+			.with_inner_size([1200.0, 800.0])
+			.with_min_inner_size([800.0, 600.0])
+			.with_resizable(true),
 		..Default::default()
 	};
 	eframe::run_native(
@@ -72,9 +76,9 @@ pub struct GPUSimApp {
 impl GPUSimApp {
 	pub fn new<'a>(cc: &'a eframe::CreationContext<'a>) -> Self {
 		let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
-		let width = 800;
-		let height = 800;
-		let scale = 20.;
+		let width = 1024;
+		let height = 1024;
+		let scale = 25.;
 		let mut fonts = FontDefinitions::default();
 		fonts.font_data.insert(
 			"Inter".to_owned(),
@@ -324,23 +328,30 @@ impl eframe::App for GPUSimApp {
 			ui.label("  - Zero: particles start at rest");
 		});
 
-		egui::CentralPanel::default().show(ctx, |ui| {
-			egui::Frame::canvas(ui.style()).show(ui, |ui| {
-				// let rect = ui.available_rect_before_wrap();
-				let (resp, ptr) =
-					ui.allocate_painter(egui::vec2(500., 500.), Sense::focusable_noninteractive());
+		egui::CentralPanel::default()
+			.frame(egui::Frame::NONE.inner_margin(15.0)) // Remove default frame styling
+			.show(ctx, |ui| {
+			egui::Frame::NONE.show(ui, |ui| {
+				// Use all available space for the simulation
+				let available_size = ui.available_size();
+				
+				// Make it square and use the smaller dimension to fit properly
+				let min_dimension = available_size.x.min(available_size.y).max(200.0); // Minimum size of 200px
+				let canvas_size = egui::vec2(min_dimension, min_dimension);
+				let (resp, ptr) = ui.allocate_painter(available_size, Sense::focusable_noninteractive());
+				let canv_rect = egui::Rect::from_center_size(resp.rect.center(), canvas_size);
 
 				// Only update simulation if not paused
 				if !self.is_paused {
 					ptr.add(eframe::egui_wgpu::Callback::new_paint_callback(
-						resp.rect, self.sim,
+						canv_rect, self.sim,
 					));
 				} else {
 					// When paused, still render the current state but don't update
 					let mut paused_sim = self.sim;
 					paused_sim.params.dt = 0.0; // Set dt to 0 to prevent updates
 					ptr.add(eframe::egui_wgpu::Callback::new_paint_callback(
-						resp.rect, paused_sim,
+						canv_rect, paused_sim,
 					));
 				}
 			});
