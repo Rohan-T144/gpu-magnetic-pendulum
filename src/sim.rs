@@ -7,7 +7,7 @@ use eframe::wgpu;
 use glam::{vec2, Vec2};
 use wgpu::{include_wgsl, util::DeviceExt, TextureFormat};
 
-use crate::resources::TWILIGHT_MAP;
+use crate::twilight::TWILIGHT_MAP;
 
 // wgpu requires the structures to be padded to 16 bytes (4 floats)
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -73,50 +73,32 @@ pub struct GPUSim {
 
 impl GPUSim {
 	pub fn create_particles(width: u32, height: u32, scale: f32, params: &Params) -> Vec<Particle> {
-		(0..width * height)
-			.map(|i| {
-				let u = (vec2(
-					(i % width) as f32 / width as f32,
-					(i / width) as f32 / height as f32,
-				) - Vec2::splat(0.5))
-					* scale;
-
-				let du = match params.velocity_pattern {
-					0 => {
-						// Radial pattern: velocity points away from center
-						if u.length() > 0.001 {
-							params.velocity_magnitude
-								* u.normalize()
-									.rotate(Vec2::from_angle(params.velocity_angle))
-						} else {
-							Vec2::from_angle(params.velocity_angle) * params.velocity_magnitude
-						}
-					}
-					1 => {
-						// Tangential pattern: velocity perpendicular to position
-						if u.length() > 0.001 {
-							params.velocity_magnitude
-								* Vec2::new(-u.y, u.x)
-									.normalize()
-									.rotate(Vec2::from_angle(params.velocity_angle))
-						} else {
-							Vec2::from_angle(params.velocity_angle + PI / 2.0)
-								* params.velocity_magnitude
-						}
-					}
-					2 => {
-						// Uniform direction: all particles have same velocity direction
-						Vec2::from_angle(params.velocity_angle) * params.velocity_magnitude
-					}
-					_ => {
-						// Zero velocity
-						Vec2::ZERO
-					}
-				};
-
-				Particle { u, du }
-			})
-			.collect()
+		(0..width * height).map(|i| {
+			let u = (vec2(
+				(i % width) as f32 / width as f32,
+				(i / width) as f32 / height as f32,
+			) - Vec2::splat(0.5)) * scale;
+			let du = match params.velocity_pattern {
+				// Radial pattern: velocity points away from center
+				0 => if u.length() > 0.001 {
+					params.velocity_magnitude * u.normalize()
+				        .rotate(Vec2::from_angle(params.velocity_angle))
+				} else {
+					Vec2::from_angle(params.velocity_angle) * params.velocity_magnitude
+				}
+				// Tangential pattern: velocity perpendicular to position
+				1 => if u.length() > 0.001 {
+					params.velocity_magnitude * Vec2::new(-u.y, u.x).normalize()
+						.rotate(Vec2::from_angle(params.velocity_angle))
+				} else {
+					Vec2::from_angle(params.velocity_angle + PI / 2.0) * params.velocity_magnitude
+				}
+				// Uniform direction: all particles have same velocity direction
+				2 => Vec2::from_angle(params.velocity_angle) * params.velocity_magnitude,
+				_ => Vec2::ZERO
+			};
+			Particle { u, du }
+		}).collect()
 	}
 
 	pub fn new(
