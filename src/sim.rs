@@ -43,7 +43,7 @@ impl Params {
 			c: 0.2,
 			w: width,
 			h: height,
-			dt: 0.008,
+			dt: 0.012,
 			velocity_magnitude: 4.0,
 			velocity_angle: 0.0,
 			velocity_pattern: 1, // tangential by default

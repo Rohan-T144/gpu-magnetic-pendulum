@@ -6,7 +6,7 @@
 
 A real-time GPU-accelerated simulation of a magnetic pendulum system that generates beautiful fractal-like patterns through chaotic dynamics.
 
-**[Try it live in your browser (requires WebGPU) →](https://rohan-t144.github.io/gpu-magnetic-pendulum/)**
+**[Try it live in your browser (requires WebGPU)](https://rohan-t144.github.io/gpu-magnetic-pendulum/)**
 
 ## What is this?
 
@@ -23,6 +23,8 @@ Each pixel in the visualization represents a particle starting from that positio
 - **Cross-platform**: Runs natively on desktop and in web browsers via WebGPU
 
 ## Running the Simulation
+
+Requires Rust and `cargo` to build.
 
 ### Desktop (Native)
 
