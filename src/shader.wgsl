@@ -6,19 +6,19 @@ fn dir(a: f32) -> vec2f { return vec2f(cos(a), sin(a)); }
 fn length2(v: vec2f) -> f32 { return v.x * v.x + v.y * v.y; }
 
 struct Particle {
-	u: vec2f,
-	du: vec2f,
+    u: vec2f,
+    du: vec2f,
 };
 
 struct Params {
-	n: u32,
-	r: f32, // radius of the magnets from centre
-	d: f32,
-	mu: f32, // coefficient of friction
-	c: f32,
-	dt: f32,
-	w: u32,
-	h: u32,
+    n: u32,
+    r: f32, // radius of the magnets from centre
+    d: f32,
+    mu: f32, // coefficient of friction
+    c: f32,
+    dt: f32,
+    w: u32,
+    h: u32,
 }
 
 @group(0) @binding(0)
@@ -35,49 +35,49 @@ var<storage, read> colormap: array<vec4<f32>>;
 
 @compute @workgroup_size(16, 16, 1)  // PARTICLES PER GROUP: 256
 fn comp_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-	if (global_id.x >= params.w || global_id.y >= params.h) { return; }
-	let globalidx = global_id.x + global_id.y * params.w; 
+    if (global_id.x >= params.w || global_id.y >= params.h) { return; }
+    let globalidx = global_id.x + global_id.y * params.w; 
 
-	var p = particles[globalidx];
-	var ddu = vec2f(0.0, 0.0);
+    var p = particles[globalidx];
+    var ddu = vec2f(0.0, 0.0);
 
-	let d2 = params.d * params.d;
-	for (var i: u32 = 0; i < params.n; i++) {
-		let mag = params.r * dir(f32(i)*tau/f32(params.n));
-		let diff = mag-p.u;
-		let sq = sqrt(length2(diff)+d2);
-		ddu += diff / (sq*sq*sq);
-	}
-	ddu -= params.mu * p.du + params.c * p.u;
+    let d2 = params.d * params.d;
+    for (var i: u32 = 0; i < params.n; i++) {
+        let mag = params.r * dir(f32(i)*tau/f32(params.n));
+        let diff = mag-p.u;
+        let sq = sqrt(length2(diff)+d2);
+        ddu += diff / (sq*sq*sq);
+    }
+    ddu -= params.mu * p.du + params.c * p.u;
 
-	p.du += ddu * params.dt;
-	p.u += p.du * params.dt;
+    p.du += ddu * params.dt;
+    p.u += p.du * params.dt;
 
-	particles[globalidx] = p;
+    particles[globalidx] = p;
 
-	let a = atan2(p.u.y, p.u.x);
-	let frac = saturate((a+pi) / tau);
-	let col = colormap[u32(floor(frac * 510.0))];
+    let a = atan2(p.u.y, p.u.x);
+    let frac = saturate((a+pi) / tau);
+    let col = colormap[u32(floor(frac * 510.0))];
 
-	textureStore(tex, vec2i(global_id.xy), col);
+    textureStore(tex, vec2i(global_id.xy), col);
 }
 
 //--------/// VERTEX ///---------//
 struct VertexOutput {
-	@builtin(position) clip_position: vec4<f32>,
-	@location(0) tex_coords: vec2<f32>,
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) tex_coords: vec2<f32>,
 }
 
 @vertex
 fn vs_main(
-	@builtin(vertex_index) vid: u32,
-	@location(0) clip_pos: vec2f,
-	@location(1) tex_pos: vec2f,
+    @builtin(vertex_index) vid: u32,
+    @location(0) clip_pos: vec2f,
+    @location(1) tex_pos: vec2f,
 ) -> VertexOutput {
-	var out: VertexOutput;
-	out.tex_coords = tex_pos;
-	out.clip_position = vec4f(clip_pos, 0.0, 1.0);
-	return out;
+    var out: VertexOutput;
+    out.tex_coords = tex_pos;
+    out.clip_position = vec4f(clip_pos, 0.0, 1.0);
+    return out;
 }
 
 // --------/// FRAGMENT ///---------//
@@ -88,5 +88,5 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-	return textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    return textureSample(t_diffuse, s_diffuse, in.tex_coords);
 }
