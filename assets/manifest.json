@@ -1,6 +1,6 @@
 {
-  "name": "egui Template PWA",
-  "short_name": "egui-template-pwa",
+  "name": "gpusim PWA",
+  "short_name": "gpusim-pwa",
   "icons": [
     {
       "src": "./assets/icon-256.png",

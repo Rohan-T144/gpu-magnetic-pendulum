@@ -31,7 +31,25 @@ pub struct Params {
 	pub velocity_magnitude: f32, // magnitude of initial velocity
 	pub velocity_angle: f32,     // angle offset for velocity direction (in radians)
 	pub velocity_pattern: u32,   // 0=radial, 1=tangential, 2=uniform, 3=zero
-	_padding: f32,               // padding to maintain 16-byte alignment
+	_padding: u32,               // padding to maintain 16-byte alignment
+}
+impl Params {
+	pub fn default(width: u32, height: u32) -> Self {
+		Self {
+			n: 5,
+			r: 3.0,
+			d: 0.4,
+			mu: 0.2,
+			c: 0.2,
+			w: width,
+			h: height,
+			dt: 0.008,
+			velocity_magnitude: 4.0,
+			velocity_angle: 0.0,
+			velocity_pattern: 1, // tangential by default
+			_padding: 0,
+		}
+	}
 }
 
 struct GPUSimResources {
@@ -107,21 +125,7 @@ impl GPUSim {
 		height: u32,
 		scale: f32,
 	) -> Self {
-		let params = Params {
-			n: 3,
-			r: 3.0,
-			d: 0.4,
-			mu: 0.2,
-			c: 0.2,
-			w: width,
-			h: height,
-			dt: 0.008,
-			velocity_magnitude: 4.0,
-			velocity_angle: 0.0,
-			velocity_pattern: 1, // tangential by default
-			_padding: 0.0,
-		};
-
+		let params = Params::default(width, height);
 		let (device, target_format) = (&wgpu_render_state.device, wgpu_render_state.target_format);
 		let particles = Self::create_particles(width, height, scale, &params);
 

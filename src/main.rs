@@ -2,7 +2,7 @@
 mod resources;
 mod sim;
 use std::{error::Error, sync::Arc};
-use sim::GPUSim;
+use sim::{GPUSim, Params};
 use eframe::egui::{self, FontData, FontDefinitions, Sense, Slider, Vec2};
 use rand::Rng;
 
@@ -66,7 +66,7 @@ pub struct GPUSimApp {
 	is_paused: bool,
 	width: u32,
 	height: u32,
-	scale: f32,
+	_scale: f32,
 }
 
 impl GPUSimApp {
@@ -92,7 +92,7 @@ impl GPUSimApp {
 			is_paused: true,
 			width,
 			height,
-			scale,
+			_scale: scale,
 		}
 	}
 }
@@ -105,7 +105,8 @@ impl eframe::App for GPUSimApp {
 			
 			// Play/Pause button
 			ui.horizontal(|ui| {
-				if ui.button(if self.is_paused { "▶ Play" } else { "⏸ Pause" }).clicked() {
+				// ⏸ is not in the Inter font
+				if ui.button(if self.is_paused { "▶ Play" } else { "■ Pause" }).clicked() {
 					self.is_paused = !self.is_paused;
 				}
 				ui.label(if self.is_paused { "Simulation Paused" } else { "Simulation Running" });
@@ -235,15 +236,7 @@ impl eframe::App for GPUSimApp {
 			// Reset and restart buttons
 			ui.horizontal(|ui| {
 				if ui.button("Reset Parameters").clicked() {
-					self.sim.params.n = 5;
-					self.sim.params.r = 3.0;
-					self.sim.params.d = 0.4;
-					self.sim.params.mu = 0.2;
-					self.sim.params.c = 0.2;
-					self.sim.params.dt = 0.006;
-					self.sim.params.velocity_magnitude = 4.0;
-					self.sim.params.velocity_angle = std::f32::consts::PI / 2.0;
-					self.sim.params.velocity_pattern = 1;
+					self.sim.params = Params::default(self.width, self.height);
 				}
 				
 				if ui.button("Restart Simulation").clicked() {
@@ -257,10 +250,10 @@ impl eframe::App for GPUSimApp {
 			
 			// Randomize velocity button
 			if ui.button("Randomize Velocity").clicked() {
-				let mut rng = rand::thread_rng();
-				self.sim.params.velocity_magnitude = rng.gen_range(0.5..8.0);
-				self.sim.params.velocity_angle = rng.gen_range(0.0..std::f32::consts::TAU);
-				self.sim.params.velocity_pattern = rng.gen_range(0..4);
+				let mut rng = rand::rng();
+				self.sim.params.velocity_magnitude = rng.random_range(0.5..8.0);
+				self.sim.params.velocity_angle = rng.random_range(0.0..std::f32::consts::TAU);
+				self.sim.params.velocity_pattern = rng.random_range(0..4);
 			}
 			
 			ui.separator();
